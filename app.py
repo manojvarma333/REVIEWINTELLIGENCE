@@ -10,9 +10,10 @@ from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 import re
 from typing import List, Tuple, Dict
+import sys
+import os
 
 # Download NLTK resources (only needed once)
-@st.cache_resource
 def download_nltk_resources():
     """Download required NLTK resources"""
     try:
@@ -35,19 +36,20 @@ def download_nltk_resources():
     except LookupError:
         nltk.download('wordnet')
 
-# Load cached models and data
-@st.cache_resource
+# Load models and data
 def load_models_and_data():
     """Load all pre-trained models and data files"""
-    sentiment_model = joblib.load('sentiment_model.joblib')
-    tfidf_vectorizer = joblib.load('tfidf_vectorizer.joblib')
-    movies_df = pd.read_csv('movies_metadata_cleaned.csv')
-    movie_tfidf_matrix = joblib.load('movie_tfidf_matrix.joblib')
-    
-    return sentiment_model, tfidf_vectorizer, movies_df, movie_tfidf_matrix
+    try:
+        sentiment_model = joblib.load('sentiment_model.joblib')
+        tfidf_vectorizer = joblib.load('tfidf_vectorizer.joblib')
+        movies_df = pd.read_csv('movies_metadata_cleaned.csv')
+        movie_tfidf_matrix = joblib.load('movie_tfidf_matrix.joblib')
+        return sentiment_model, tfidf_vectorizer, movies_df, movie_tfidf_matrix
+    except Exception as e:
+        st.error(f"Error loading models: {str(e)}")
+        return None, None, None, None, None
 
 # Text preprocessing functions
-@st.cache_data
 def get_preprocessing_objects():
     """Get stopwords and lemmatizer objects"""
     stop_words = set(stopwords.words('english'))
@@ -62,47 +64,55 @@ def preprocess_text(text: str, stop_words: set, lemmatizer: WordNetLemmatizer) -
     - Remove stopwords
     - Lemmatize
     """
-    # Convert to lowercase
-    text = text.lower()
-    
-    # Remove special characters but keep spaces
-    text = re.sub(r'[^a-zA-Z\s]', '', text)
-    
-    # Tokenize
-    tokens = word_tokenize(text)
-    
-    # Remove stopwords and lemmatize
-    processed_tokens = []
-    for token in tokens:
-        if token not in stop_words and len(token) > 2:
-            lemmatized = lemmatizer.lemmatize(token)
-            processed_tokens.append(lemmatized)
-    
-    return ' '.join(processed_tokens)
+    try:
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove special characters but keep spaces
+        text = re.sub(r'[^a-zA-Z\s]', '', text)
+        
+        # Tokenize
+        tokens = word_tokenize(text)
+        
+        # Remove stopwords and lemmatize
+        processed_tokens = []
+        for token in tokens:
+            if token not in stop_words and len(token) > 2:
+                lemmatized = lemmatizer.lemmatize(token)
+                processed_tokens.append(lemmatized)
+        
+        return ' '.join(processed_tokens)
+    except Exception as e:
+        st.error(f"Error preprocessing text: {str(e)}")
+        return text
 
 def extract_top_keywords(tfidf_vector: np.ndarray, feature_names: List[str], top_k: int = 5) -> List[str]:
     """Extract top keywords based on TF-IDF scores"""
-    # Get all scores and indices
-    scores = tfidf_vector.toarray().flatten()
-    
-    # Get all indices sorted by score (including zeros)
-    sorted_indices = np.argsort(scores)[::-1]
-    
-    # Get top k keywords (even if score is zero, we want to highest scoring terms)
-    top_keywords = []
-    for i in sorted_indices[:top_k]:
-        if scores[i] > 0:  # Only include if score > 0
-            top_keywords.append(feature_names[i])
-        else:
-            # If no more positive scores, break
-            break
-    
-    # If no keywords found with positive scores, get highest scoring anyway
-    if not top_keywords:
+    try:
+        # Get all scores and indices
+        scores = tfidf_vector.toarray().flatten()
+        
+        # Get all indices sorted by score (including zeros)
+        sorted_indices = np.argsort(scores)[::-1]
+        
+        # Get top k keywords (even if score is zero, we want to highest scoring terms)
+        top_keywords = []
         for i in sorted_indices[:top_k]:
-            top_keywords.append(feature_names[i])
-    
-    return top_keywords
+            if scores[i] > 0:  # Only include if score > 0
+                top_keywords.append(feature_names[i])
+            else:
+                # If no more positive scores, break
+                break
+        
+        # If no keywords found with positive scores, get highest scoring anyway
+        if not top_keywords:
+            for i in sorted_indices[:top_k]:
+                top_keywords.append(feature_names[i])
+        
+        return top_keywords
+    except Exception as e:
+        st.error(f"Error extracting keywords: {str(e)}")
+        return []
 
 def get_movie_recommendations(user_tfidf_vector, movie_tfidf_matrix, movies_df, top_k: int = 5) -> List[Dict]:
     """
@@ -117,40 +127,57 @@ def get_movie_recommendations(user_tfidf_vector, movie_tfidf_matrix, movies_df, 
     Returns:
         List of dictionaries with movie recommendations
     """
-    # Compute cosine similarity between user review and all movies
-    similarities = cosine_similarity(user_tfidf_vector, movie_tfidf_matrix).flatten()
-    
-    # Get top indices sorted by similarity (highest first)
-    top_indices = similarities.argsort()[-top_k:][::-1]
-    
-    # Create recommendation list
-    recommendations = []
-    for idx in top_indices:
-        if idx < len(movies_df):
-            movie = movies_df.iloc[idx]
-            recommendations.append({
-                'title': movie['movie_title'],
-                'genre': movie['genre'],
-                'description': movie['description'],
-                'similarity_score': similarities[idx]
-            })
-    
-    return recommendations
+    try:
+        # Compute cosine similarity between user review and all movies
+        similarities = cosine_similarity(user_tfidf_vector, movie_tfidf_matrix).flatten()
+        
+        # Get top indices sorted by similarity (highest first)
+        top_indices = similarities.argsort()[-top_k:][::-1]
+        
+        # Create recommendation list
+        recommendations = []
+        for idx in top_indices:
+            if idx < len(movies_df):
+                movie = movies_df.iloc[idx]
+                recommendations.append({
+                    'title': movie['movie_title'],
+                    'genre': movie['genre'],
+                    'description': movie['description'],
+                    'similarity_score': similarities[idx]
+                })
+        
+        return recommendations
+    except Exception as e:
+        st.error(f"Error getting recommendations: {str(e)}")
+        return []
 
 def main():
     # Page configuration
-    st.set_page_config(
-        page_title="OTT Review Intelligence & Personalization System",
-        page_icon="🎬",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    try:
+        st.set_page_config(
+            page_title="OTT Review Intelligence & Personalization System",
+            page_icon="🎬",
+            layout="wide",
+            initial_sidebar_state="collapsed"
+        )
+    except Exception as e:
+        st.error(f"Error setting page config: {str(e)}")
+        return
     
     # Download NLTK resources
-    download_nltk_resources()
+    try:
+        download_nltk_resources()
+    except Exception as e:
+        st.error(f"Error downloading NLTK resources: {str(e)}")
+        return
     
     # Load models and data
     sentiment_model, tfidf_vectorizer, movies_df, movie_tfidf_matrix = load_models_and_data()
+    
+    if sentiment_model is None:
+        st.error("Failed to load models. Please check file paths.")
+        return
+    
     stop_words, lemmatizer = get_preprocessing_objects()
     
     # Custom CSS for styling
@@ -250,7 +277,7 @@ def main():
                     feature_names = tfidf_vectorizer.get_feature_names_out()
                     top_keywords = extract_top_keywords(user_vector, feature_names, top_k=5)
                     
-                    # Get movie recommendations using the corrected logic
+                    # Get movie recommendations
                     recommendations = get_movie_recommendations(
                         user_vector, movie_tfidf_matrix, movies_df, top_k=5
                     )
@@ -264,17 +291,6 @@ def main():
                         'original_review': user_review,
                         'processed_review': processed_review
                     }
-                    
-                    # TEMPORARY DEBUGGING - Print similarity scores
-                    similarities = cosine_similarity(user_vector, movie_tfidf_matrix).flatten()
-                    st.write("🔍 DEBUG: Similarity Analysis")
-                    st.write(f"Processed review: '{processed_review}'")
-                    st.write(f"First 5 similarity scores: {similarities[:5]}")
-                    st.write(f"Top 5 similarity values: {sorted(similarities, reverse=True)[:5]}")
-                    
-                    # Show similarity for each movie
-                    for i, movie in movies_df.iterrows():
-                        st.write(f"{movie['movie_title']}: {similarities[i]:.6f}")
                     
                 except Exception as e:
                     st.error(f"An error occurred during analysis: {str(e)}")
@@ -370,4 +386,8 @@ def main():
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        st.write("Please refresh the page and try again.")
